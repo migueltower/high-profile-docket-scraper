@@ -42,34 +42,63 @@ def extract_docket_data(url, suspect_name):
                             result["Attorney"] = values[j].get_text(strip=True)
                     break
 
-    # --- CRIME + STATUS Extraction ---
+    # --- CRIME + STATUS Extraction with priority ---
     disposition_section = soup.find("div", id="tblDocket12")
     best_crime, best_status = None, None
 
     if disposition_section:
         rows = disposition_section.find_all("div", class_="row g-0")
-        first_found = False
+        charges = []
+
         for row in rows:
             cols = row.find_all("div")
             party, description, disposition = None, None, None
+            disposition_text = ""
+
             for idx, col in enumerate(cols):
-                text = col.get_text(strip=True)
-                if "Party Name" in text and idx + 1 < len(cols):
+                label = col.get_text(strip=True)
+                if "Party Name" in label and idx + 1 < len(cols):
                     party = cols[idx + 1].get_text(strip=True)
-                elif "Description" in text and idx + 1 < len(cols):
+                elif "Description" in label and idx + 1 < len(cols):
                     description = cols[idx + 1].get_text(strip=True)
-                elif "Disposition" in text and idx + 1 < len(cols):
+                elif "Disposition" in label and idx + 1 < len(cols):
                     disposition = cols[idx + 1].get_text(strip=True)
+                elif "col-6 col-md-3 col-lg-4 col-xl-5" in col.get("class", []):
+                    disposition_text = col.get_text(strip=True)
 
             if party and suspect_name.lower() in party.lower():
-                if description and "MURDER" in description.upper():
-                    best_crime = description
-                    best_status = disposition
+                charges.append({
+                    "description": description,
+                    "disposition": disposition,
+                    "disposition_text": disposition_text or "",
+                    "has_murder": "MURDER" in description.upper() if description else False
+                })
+
+        # Priority 1: charges with empty disposition
+        for charge in charges:
+            if charge["disposition_text"] == "" and charge["description"]:
+                best_crime = charge["description"]
+                best_status = charge["disposition"]
+                break
+
+        # Priority 2: charges with "Guilty" in disposition
+        if not best_crime:
+            for charge in charges:
+                if "GUILTY" in charge["disposition_text"].upper() and charge["description"]:
+                    best_crime = charge["description"]
+                    best_status = charge["disposition"]
                     break
-                elif not first_found and description:
-                    best_crime = description
-                    best_status = disposition
-                    first_found = True
+
+        # Priority 3: charges with "MURDER" or fallback to first valid charge
+        if not best_crime:
+            for charge in charges:
+                if charge["has_murder"]:
+                    best_crime = charge["description"]
+                    best_status = charge["disposition"]
+                    break
+            if not best_crime and charges:
+                best_crime = charges[0]["description"]
+                best_status = charges[0]["disposition"]
 
     if best_crime:
         result["Crime"] = best_crime
