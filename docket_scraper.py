@@ -1,11 +1,11 @@
 import os
 import re
 import requests
-from datetime import datetime
 from bs4 import BeautifulSoup
+from datetime import datetime
 from pyairtable import Api
 
-# Airtable setup
+# Airtable Setup
 AIRTABLE_API_KEY = os.environ["AIRTABLE_API_KEY"]
 BASE_ID = "appwbCU6BAWOA1AQX"
 TABLE_ID = "tblb0yIYr91PzghXQ"
@@ -13,7 +13,6 @@ api = Api(AIRTABLE_API_KEY)
 table = api.table(BASE_ID, TABLE_ID)
 
 TODAY = datetime.today()
-
 
 def extract_from_docket(url, suspect_name):
     response = requests.get(url)
@@ -29,98 +28,48 @@ def extract_from_docket(url, suspect_name):
         "Sentencing": None
     }
 
-    # --- Attorney extraction from tblForms2 ---
-    atty_section = soup.find(id="tblForms2")
-    if atty_section:
-        blocks = atty_section.find_all("div", class_="row g-0")
-        for block in blocks:
-            party = block.find("div", string=re.compile("Party Name", re.I))
-            if party and "State Of Arizona" in block.text:
-                atty_label = block.find("div", string=re.compile("Attorney", re.I))
-                if atty_label:
-                    atty_val = atty_label.find_next_sibling("div")
-                    if atty_val:
-                        result["Attorney"] = atty_val.text.strip()
+    # -- ATTORNEY extraction --
+    tbl2 = soup.find(id="tblDocket2")
+    if tbl2:
+        party_blocks = tbl2.find_all(id="tblForms2")
+        for block in party_blocks:
+            labels = block.find_all("div", class_="col-4 m-visibility bold-font")
+            for i, label in enumerate(labels):
+                if label.get_text(strip=True) == "Party Name":
+                    name_div = labels[i].find_next_sibling("div")
+                    if name_div and "State Of Arizona" in name_div.get_text():
+                        for j, lbl in enumerate(labels):
+                            if lbl.get_text(strip=True) == "Attorney":
+                                attorney_div = lbl.find_next_sibling("div")
+                                if attorney_div:
+                                    result["Attorney"] = attorney_div.get_text(strip=True)
                         break
 
-    # --- Disposition info from tblDocket12 ---
-    charge_section = soup.find(id="tblDocket12")
-    murder_found = False
-    if charge_section:
-        rows = charge_section.find_all("div", class_="row g-0")
-        for row in rows:
-            party_name_div = row.find("div", class_=re.compile("col.*"))
-            if party_name_div and suspect_name.lower() in party_name_div.text.strip().lower():
-                description_label = row.find(string=re.compile("Description", re.I))
-                disposition_label = row.find(string=re.compile("Disposition", re.I))
+    # -- CRIME + STATUS extraction --
+    disposition_section = soup.find(id="tblDocket12")
+    crime_found = False
+    if disposition_section:
+        blocks = disposition_section.find_all("div", class_="row g-0")
+        for block in blocks:
+            party_name = None
+            description = None
+            disposition = None
 
-                description = ""
-                disposition = ""
-
-                if description_label:
-                    desc_val_div = description_label.find_next("div")
-                    if desc_val_div:
-                        description = desc_val_div.text.strip()
-
-                if disposition_label:
-                    disp_val_div = disposition_label.find_next("div")
-                    if disp_val_div:
-                        disposition = disp_val_div.text.strip()
-
-                if "MURDER" in description.upper():
-                    result["Crime"] = description
-                    result["Status"] = disposition
-                    murder_found = True
-                    break
-                elif not result["Crime"]:
-                    result["Crime"] = description
-                    result["Status"] = disposition
-
-    # --- Calendar info from tblForms4 ---
-    calendar = soup.find(id="tblForms4")
-    future_dates = []
-    if calendar:
-        rows = calendar.find_all("div", class_="row g-0")
-        for row in rows:
-            date_div = row.find("div", class_="col-6 col-lg-2")
-            event_div = row.find("div", class_="col-6 col-lg-8")
-            if date_div and event_div:
-                try:
-                    date_obj = datetime.strptime(date_div.text.strip(), "%m/%d/%Y")
-                    if date_obj >= TODAY:
-                        event_text = event_div.text.strip()
-                        future_dates.append((date_obj, event_text))
-                except:
+            for label in block.find_all("div", class_="col-6"):
+                label_text = label.get_text(strip=True)
+                next_div = label.find_next_sibling("div")
+                if not next_div:
                     continue
 
-        if future_dates:
-            future_dates.sort()
-            soonest_date, soonest_event = future_dates[0]
-            result["Next Hearing Date"] = soonest_date.strftime("%Y-%m-%d")
-            result["Next Hearing"] = soonest_event
+                if label_text == "Party Name":
+                    party_name = next_div.get_text(strip=True)
+                elif label_text == "Description":
+                    description = next_div.get_text(strip=True)
+                elif label_text == "Disposition":
+                    disposition = next_div.get_text(strip=True)
 
-            for dt, ev in future_dates:
-                if "TRIAL" in ev.upper() and not result["Trial"]:
-                    result["Trial"] = dt.strftime("%Y-%m-%d")
-                if "SENTENCING" in ev.upper() and not result["Sentencing"]:
-                    result["Sentencing"] = dt.strftime("%Y-%m-%d")
+            if not party_name or not suspect_name.lower() in party_name.lower():
+                continue
 
-    return result
-
-
-# --- Main Run ---
-records = table.all(fields=["Suspect Name", "Court Docket"])
-
-for record in records:
-    fields = record.get("fields", {})
-    docket_url = fields.get("Court Docket")
-    suspect = fields.get("Suspect Name")
-
-    if docket_url and suspect:
-        print(f"Processing: {suspect}")
-        try:
-            result = extract_from_docket(docket_url, suspect)
-            table.update(record["id"], result)
-            print(f"✔️ Updated {suspect}")
-        except Exception as e:
-            print(f"❌ Failed for {suspect}: {e}")
+            if description and "MURDER" in description.upper():
+                result["Crime"] = description
