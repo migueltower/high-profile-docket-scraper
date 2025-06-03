@@ -48,6 +48,7 @@ def extract_docket_data(url, suspect_name):
 
     if disposition_section:
         rows = disposition_section.find_all("div", class_="row g-0")
+        first_found = False
         for row in rows:
             cols = row.find_all("div")
             party, description, disposition = None, None, None
@@ -65,9 +66,10 @@ def extract_docket_data(url, suspect_name):
                     best_crime = description
                     best_status = disposition
                     break
-                elif not best_crime and description:
+                elif not first_found and description:
                     best_crime = description
                     best_status = disposition
+                    first_found = True
 
     if best_crime:
         result["Crime"] = best_crime
