@@ -42,67 +42,53 @@ def extract_docket_data(url, suspect_name):
                             result["Attorney"] = values[j].get_text(strip=True)
                     break
 
-    # --- CRIME + STATUS Extraction with priority ---
+    # --- CRIME + STATUS Extraction with layered priority ---
     disposition_section = soup.find("div", id="tblDocket12")
-    best_crime, best_status = None, None
+    charges = []
 
     if disposition_section:
         rows = disposition_section.find_all("div", class_="row g-0")
-        charges = []
-
         for row in rows:
             cols = row.find_all("div")
-            party, description, disposition = None, None, None
-            disposition_text = ""
+            party, description, disposition, disp_text = None, None, None, ""
 
-            for idx, col in enumerate(cols):
-                label = col.get_text(strip=True)
-                if "Party Name" in label and idx + 1 < len(cols):
-                    party = cols[idx + 1].get_text(strip=True)
-                elif "Description" in label and idx + 1 < len(cols):
-                    description = cols[idx + 1].get_text(strip=True)
-                elif "Disposition" in label and idx + 1 < len(cols):
-                    disposition = cols[idx + 1].get_text(strip=True)
-                elif "col-6 col-md-3 col-lg-4 col-xl-5" in col.get("class", []):
-                    disposition_text = col.get_text(strip=True)
+            for i in range(len(cols)):
+                label = cols[i].get_text(strip=True)
+                if "Party Name" == label and i+1 < len(cols):
+                    party = cols[i+1].get_text(strip=True)
+                elif "Description" == label and i+1 < len(cols):
+                    description = cols[i+1].get_text(strip=True)
+                elif "Disposition" == label and i+1 < len(cols):
+                    disposition = cols[i+1].get_text(strip=True)
+                elif "Disposition" in label and i+1 < len(cols):
+                    disp_text = cols[i+1].get_text(strip=True)
 
-            if party and suspect_name.lower() in party.lower():
+            if party and suspect_name.lower() in party.lower() and description:
                 charges.append({
                     "description": description,
                     "disposition": disposition,
-                    "disposition_text": disposition_text or "",
-                    "has_murder": "MURDER" in description.upper() if description else False
+                    "disposition_text": disp_text,
+                    "has_murder": "MURDER" in description.upper(),
+                    "is_guilty": "GUILTY" in disp_text.upper(),
+                    "is_empty": disp_text.strip() == ""
                 })
 
-        # Priority 1: charges with empty disposition
-        for charge in charges:
-            if charge["disposition_text"] == "" and charge["description"]:
-                best_crime = charge["description"]
-                best_status = charge["disposition"]
-                break
+    def pick_best_charge(charges):
+        for c in charges:
+            if c["is_empty"]:
+                return c
+        for c in charges:
+            if c["is_guilty"]:
+                return c
+        for c in charges:
+            if c["has_murder"]:
+                return c
+        return charges[0] if charges else None
 
-        # Priority 2: charges with "Guilty" in disposition
-        if not best_crime:
-            for charge in charges:
-                if "GUILTY" in charge["disposition_text"].upper() and charge["description"]:
-                    best_crime = charge["description"]
-                    best_status = charge["disposition"]
-                    break
-
-        # Priority 3: charges with "MURDER" or fallback to first valid charge
-        if not best_crime:
-            for charge in charges:
-                if charge["has_murder"]:
-                    best_crime = charge["description"]
-                    best_status = charge["disposition"]
-                    break
-            if not best_crime and charges:
-                best_crime = charges[0]["description"]
-                best_status = charges[0]["disposition"]
-
-    if best_crime:
-        result["Crime"] = best_crime
-        result["Status"] = best_status
+    selected = pick_best_charge(charges)
+    if selected:
+        result["Crime"] = selected["description"]
+        result["Status"] = selected["disposition"]
 
     # --- CALENDAR INFO ---
     calendar = soup.find(id="tblForms4")
