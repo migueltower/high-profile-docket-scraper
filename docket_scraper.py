@@ -42,7 +42,7 @@ def extract_docket_data(url, suspect_name):
                             result["Attorney"] = values[j].get_text(strip=True)
                     break
 
-    # --- CRIME + STATUS Extraction with layered priority ---
+    # --- CRIME + STATUS Extraction with improved prioritization ---
     disposition_section = soup.find("div", id="tblDocket12")
     charges = []
 
