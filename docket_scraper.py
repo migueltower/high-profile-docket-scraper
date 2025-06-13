@@ -24,7 +24,8 @@ def extract_docket_data(url, suspect_name):
         "Next Hearing": None,
         "Next Hearing Date": None,
         "Trial": None,
-        "Sentencing": None
+        "Sentencing": None,
+        "fldX72Wdvk52dP8NG": None  # Last Filed
     }
 
     # --- ATTORNEY Extraction ---
@@ -32,7 +33,6 @@ def extract_docket_data(url, suspect_name):
     for section in party_sections:
         labels = section.find_all("div", class_="col-4 m-visibility bold-font")
         values = section.find_all("div", class_="col-8 col-lg-3")
-        name = None
         for i, label in enumerate(labels):
             if label.text.strip() == "Party Name" and i < len(values):
                 name = values[i].get_text(strip=True)
@@ -42,7 +42,7 @@ def extract_docket_data(url, suspect_name):
                             result["Attorney"] = values[j].get_text(strip=True)
                     break
 
-    # --- CRIME + STATUS Extraction with improved prioritization ---
+    # --- CRIME + STATUS Extraction ---
     disposition_section = soup.find("div", id="tblDocket12")
     charges = []
 
@@ -54,14 +54,14 @@ def extract_docket_data(url, suspect_name):
 
             for i in range(len(cols)):
                 label = cols[i].get_text(strip=True)
-                if "Party Name" == label and i+1 < len(cols):
-                    party = cols[i+1].get_text(strip=True)
-                elif "Description" == label and i+1 < len(cols):
-                    description = cols[i+1].get_text(strip=True)
-                elif "Disposition" == label and i+1 < len(cols):
-                    disposition = cols[i+1].get_text(strip=True)
-                elif "Disposition" in label and i+1 < len(cols):
-                    disp_text = cols[i+1].get_text(strip=True)
+                if "Party Name" == label and i + 1 < len(cols):
+                    party = cols[i + 1].get_text(strip=True)
+                elif "Description" == label and i + 1 < len(cols):
+                    description = cols[i + 1].get_text(strip=True)
+                elif "Disposition" == label and i + 1 < len(cols):
+                    disposition = cols[i + 1].get_text(strip=True)
+                elif "Disposition" in label and i + 1 < len(cols):
+                    disp_text = cols[i + 1].get_text(strip=True)
 
             if party and suspect_name.lower() in party.lower() and description:
                 charges.append({
@@ -119,12 +119,37 @@ def extract_docket_data(url, suspect_name):
                 if "SENTENCING" in ev.upper() and not result["Sentencing"]:
                     result["Sentencing"] = dt.strftime("%Y-%m-%d")
 
+    # --- LAST FILED DESCRIPTION ---
+    filings = soup.find("div", id="tblForms3")
+    latest_date = None
+    latest_description = None
+    if filings:
+        rows = filings.find_all("div", class_="row g-0")
+        for row in rows:
+            divs = row.find_all("div")
+            date_found = None
+            description = None
+            for i in range(len(divs)):
+                if "Filing Date" in divs[i].text and i+1 < len(divs):
+                    try:
+                        date_found = datetime.strptime(divs[i+1].text.strip(), "%m/%d/%Y")
+                    except:
+                        pass
+                if "Description" in divs[i].text and i+1 < len(divs):
+                    description = divs[i+1].text.strip()
+            if date_found and description:
+                if not latest_date or date_found > latest_date:
+                    latest_date = date_found
+                    latest_description = description
+
+    if latest_description:
+        result["fldX72Wdvk52dP8NG"] = latest_description
+
     return result
 
 
-# --- MAIN EXECUTION ---
+# --- MAIN LOOP ---
 records = table.all(fields=["Suspect Name", "Court Docket"])
-
 for record in records:
     fields = record.get("fields", {})
     suspect = fields.get("Suspect Name")
