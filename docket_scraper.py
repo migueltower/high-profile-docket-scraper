@@ -19,12 +19,23 @@ table = api.table(BASE_ID, TABLE_ID)
 
 TODAY = datetime.today()
 
+# --- Session with Browser Headers ---
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.superiorcourt.maricopa.gov/",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1"
+})
+
 def extract_docket_data(url, suspect_name):
     delay = random.uniform(1.5, 4.5)
     time.sleep(delay)
     logging.info(f"Hitting {url} after sleeping {delay:.2f} seconds")
 
-    response = requests.get(url)
+    response = session.get(url)
     logging.info(f"Received {response.status_code} from {url}")
 
     if "server is busy" in response.text.lower():
@@ -32,7 +43,7 @@ def extract_docket_data(url, suspect_name):
 
     soup = BeautifulSoup(response.content, "html.parser")
 
-    # --- Log the title of the page ---
+    # Log the page title
     title_tag = soup.find("title")
     if title_tag:
         logging.info(f"Page title: {title_tag.get_text(strip=True)}")
