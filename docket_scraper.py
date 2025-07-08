@@ -1,8 +1,14 @@
 import os
 import requests
+import time
+import random
+import logging
 from bs4 import BeautifulSoup
 from datetime import datetime
 from pyairtable import Api
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 AIRTABLE_API_KEY = os.environ["AIRTABLE_API_KEY"]
 BASE_ID = "appwbCU6BAWOA1AQX"
@@ -14,7 +20,16 @@ table = api.table(BASE_ID, TABLE_ID)
 TODAY = datetime.today()
 
 def extract_docket_data(url, suspect_name):
+    delay = random.uniform(1.5, 4.5)
+    time.sleep(delay)
+    logging.info(f"Hitting {url} after sleeping {delay:.2f} seconds")
+
     response = requests.get(url)
+    logging.info(f"Received {response.status_code} from {url}")
+
+    if "server is busy" in response.text.lower():
+        logging.warning(f"'Server is busy' message detected at {url}")
+
     soup = BeautifulSoup(response.content, "html.parser")
 
     result = {
@@ -164,4 +179,4 @@ for record in records:
         print(f"Updating: {data}")
         table.update(record["id"], data)
     except Exception as e:
-        print(f"Error processing {suspect}: {e}")
+        logging.error(f"Error processing {suspect}: {e}")
