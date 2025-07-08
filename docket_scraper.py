@@ -32,6 +32,13 @@ def extract_docket_data(url, suspect_name):
 
     soup = BeautifulSoup(response.content, "html.parser")
 
+    # --- Log the title of the page ---
+    title_tag = soup.find("title")
+    if title_tag:
+        logging.info(f"Page title: {title_tag.get_text(strip=True)}")
+    else:
+        logging.warning("No <title> tag found on the page")
+
     result = {
         "Attorney": None,
         "Crime": None,
