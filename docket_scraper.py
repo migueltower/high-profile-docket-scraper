@@ -6,6 +6,8 @@ import logging
 from bs4 import BeautifulSoup
 from datetime import datetime
 from pyairtable import Api
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,13 +21,21 @@ table = api.table(BASE_ID, TABLE_ID)
 
 TODAY = datetime.today()
 
-# --- Session with Browser Headers ---
+# --- Rotating User-Agent Headers ---
+user_agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.198 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+]
+
+# --- Session with Retry and Realistic Headers ---
 session = requests.Session()
+retries = Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504], raise_on_status=False)
+session.mount("https://", HTTPAdapter(max_retries=retries))
 session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,"
-              "image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    "User-Agent": random.choice(user_agents),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.superiorcourt.maricopa.gov/",
@@ -40,7 +50,7 @@ session.headers.update({
 })
 
 def extract_docket_data(url, suspect_name):
-    delay = random.uniform(1.5, 4.5)
+    delay = random.uniform(3.5, 7.0)
     time.sleep(delay)
     logging.info(f"Hitting {url} after sleeping {delay:.2f} seconds")
 
@@ -58,6 +68,7 @@ def extract_docket_data(url, suspect_name):
         logging.info(f"Page title: {title_tag.get_text(strip=True)}")
     else:
         logging.warning("No <title> tag found on the page")
+        logging.debug(response.text[:1000])  # Log preview of response
 
     result = {
         "Attorney": None,
@@ -67,10 +78,9 @@ def extract_docket_data(url, suspect_name):
         "Next Hearing Date": None,
         "Trial": None,
         "Sentencing": None,
-        "fldX72Wdvk52dP8NG": None  # Last Filed
+        "fldX72Wdvk52dP8NG": None
     }
 
-    # --- ATTORNEY Extraction ---
     party_sections = soup.find_all("div", id="tblForms2")
     for section in party_sections:
         labels = section.find_all("div", class_="col-4 m-visibility bold-font")
@@ -84,10 +94,8 @@ def extract_docket_data(url, suspect_name):
                             result["Attorney"] = values[j].get_text(strip=True)
                     break
 
-    # --- CRIME + STATUS Extraction ---
     disposition_section = soup.find("div", id="tblDocket12")
     charges = []
-
     if disposition_section:
         rows = disposition_section.find_all("div", class_="row g-0")
         for row in rows:
@@ -132,7 +140,6 @@ def extract_docket_data(url, suspect_name):
         result["Crime"] = selected["description"]
         result["Status"] = selected["disposition"]
 
-    # --- CALENDAR INFO ---
     calendar = soup.find(id="tblForms4")
     if calendar:
         rows = calendar.find_all("div", class_="row g-0")
@@ -161,7 +168,6 @@ def extract_docket_data(url, suspect_name):
                 if "SENTENCING" in ev.upper() and not result["Sentencing"]:
                     result["Sentencing"] = dt.strftime("%Y-%m-%d")
 
-    # --- LAST FILED DESCRIPTION ---
     filings = soup.find("div", id="tblForms3")
     latest_date = None
     latest_description = None
@@ -172,13 +178,13 @@ def extract_docket_data(url, suspect_name):
             date_found = None
             description = None
             for i in range(len(divs)):
-                if "Filing Date" in divs[i].text and i+1 < len(divs):
+                if "Filing Date" in divs[i].text and i + 1 < len(divs):
                     try:
-                        date_found = datetime.strptime(divs[i+1].text.strip(), "%m/%d/%Y")
+                        date_found = datetime.strptime(divs[i + 1].text.strip(), "%m/%d/%Y")
                     except:
                         pass
-                if "Description" in divs[i].text and i+1 < len(divs):
-                    description = divs[i+1].text.strip()
+                if "Description" in divs[i].text and i + 1 < len(divs):
+                    description = divs[i + 1].text.strip()
             if date_found and description:
                 if not latest_date or date_found > latest_date:
                     latest_date = date_found
@@ -188,7 +194,6 @@ def extract_docket_data(url, suspect_name):
         result["fldX72Wdvk52dP8NG"] = latest_description
 
     return result
-
 
 # --- MAIN LOOP ---
 records = table.all(fields=["Suspect Name", "Court Docket"])
