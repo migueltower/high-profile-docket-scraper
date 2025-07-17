@@ -1,7 +1,6 @@
 import os
 import requests
 import time
-import random
 import logging
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -21,7 +20,7 @@ table = api.table(BASE_ID, TABLE_ID)
 
 TODAY = datetime.today()
 
-# --- Session with Retry and Realistic Headers (Fixed User-Agent & Cookie) ---
+# --- Static session headers with real User-Agent and Cookie ---
 session = requests.Session()
 retries = Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504], raise_on_status=False)
 session.mount("https://", HTTPAdapter(max_retries=retries))
@@ -43,15 +42,22 @@ session.headers.update({
 })
 
 def extract_docket_data(url, suspect_name):
-    delay = random.uniform(3.5, 7.0)
-    time.sleep(delay)
-    logging.info(f"Hitting {url} after sleeping {delay:.2f} seconds")
+    time.sleep(4)  # fixed delay to avoid throttling
+    logging.info(f"Hitting {url}")
 
     response = session.get(url)
     logging.info(f"Received {response.status_code} from {url}")
 
-    if "server is busy" in response.text.lower():
-        logging.warning(f"'Server is busy' message detected at {url}")
+    # Check for "server busy" or similar issues
+    page_text = response.text.lower()
+    known_fail_phrases = [
+        "server is busy", "try again later", "temporarily unavailable",
+        "an error has occurred", "could not be found", "unavailable"
+    ]
+    if any(phrase in page_text for phrase in known_fail_phrases):
+        logging.warning(f"⚠️ Blocking message detected at {url}")
+        logging.debug(response.text[:1000])
+        return {}  # skip this case
 
     soup = BeautifulSoup(response.content, "html.parser")
 
@@ -61,7 +67,6 @@ def extract_docket_data(url, suspect_name):
         logging.info(f"Page title: {title_tag.get_text(strip=True)}")
     else:
         logging.warning("No <title> tag found on the page")
-        logging.debug(response.text[:1000])  # Log preview of response
 
     result = {
         "Attorney": None,
@@ -201,7 +206,10 @@ for record in records:
     try:
         print(f"Processing {suspect}")
         data = extract_docket_data(docket_url, suspect)
-        print(f"Updating: {data}")
-        table.update(record["id"], data)
+        if data:
+            print(f"Updating: {data}")
+            table.update(record["id"], data)
+        else:
+            print(f"Skipped update for {suspect} due to error page")
     except Exception as e:
         logging.error(f"Error processing {suspect}: {e}")
