@@ -21,20 +21,13 @@ table = api.table(BASE_ID, TABLE_ID)
 
 TODAY = datetime.today()
 
-# --- Rotating User-Agent Headers ---
-user_agents = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.198 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-]
-
-# --- Session with Retry and Realistic Headers ---
+# --- Session with Retry and Realistic Headers (Fixed User-Agent & Cookie) ---
 session = requests.Session()
 retries = Retry(total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504], raise_on_status=False)
 session.mount("https://", HTTPAdapter(max_retries=retries))
 session.headers.update({
-    "User-Agent": random.choice(user_agents),
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "Cookie": "cookiesEnabled=1; _ga=GA1.1.999643802.1729287917; _ga_Y8Q8DRN6NX=deleted; _ga_Y8Q8DRN6NX=deleted; _ga_Y8Q8DRN6NX=deleted; _gcl_au=1.1.355616172.1752169833; _ga_Q0RZTDZCMF=GS2.1.s1752169833$o3$g0$t1752169841$j52$l0$h0; _ga_W7L0KQ6EGZ=GS2.1.s1752169833$o3$g0$t1752169841$j52$l0$h0; ASPSESSIONIDSWDQTDSB=LKGDODJAIFFDHBKJODFEHOGD; _ga_Y8Q8DRN6NX=GS2.1.s1752777277$o298$g1$t1752777362$j44$l0$h0",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "en-US,en;q=0.9",
