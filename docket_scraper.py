@@ -1,17 +1,26 @@
 import requests
 from bs4 import BeautifulSoup
+from pyairtable import Api
 import logging
 import time
 import random
+import os
 
-# Configure logger
+# Logging setup
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 logger.addHandler(console_handler)
 
-# Header pool to rotate user-agent + headers
+logger.info("📢 Scraper started")
+
+AIRTABLE_API_KEY = os.environ["AIRTABLE_API_KEY"]
+BASE_ID = "appwbCU6BAWOA1AQX"
+TABLE_ID = "tblb0yIYr91PzghXQ"
+BASE_URL = "https://www.superiorcourt.maricopa.gov/docket/CriminalCourtCases/caseInfo.asp?caseNumber="
+
+# Pool of rotating headers
 HEADER_POOL = [
     {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:110.0) Gecko/20100101 Firefox/110.0",
@@ -37,48 +46,40 @@ HEADER_POOL = [
 ]
 
 def extract_docket_data(url, suspect_name):
-    """
-    Fetches and parses a docket page from the Maricopa County Superior Court site.
-
-    Parameters:
-    - url (str): The case detail page to visit.
-    - suspect_name (str): Name for logging (not used in logic).
-
-    Returns:
-    - dict: Placeholder result with court-related fields.
-    """
-
     headers = random.choice(HEADER_POOL)
 
     logger.info(f"Fetching URL: {url}")
     try:
         session = requests.Session()
 
-        # Warm up session with homepage to get cookies
+        # Seed cookies with homepage visit
         session.get("https://www.superiorcourt.maricopa.gov/", headers=headers, timeout=10)
 
-        # Human-like delay
+        # Add delay before main request
         time.sleep(random.uniform(4, 7))
 
-        # Request target page
         response = session.get(url, headers=headers, timeout=15)
 
-        # Log basic info
         logger.debug(f"Status code: {response.status_code}")
         logger.debug(f"First 500 characters of response:\n{response.text[:500]}")
 
-        # Check for block message
+        # Check for known block message
         if "server is busy" in response.text.lower():
-            logger.warning("🚨 Detected 'server is busy' message in response body.")
+            logger.warning("Detected 'server is busy' in response body.")
+        else:
+            soup_check = BeautifulSoup(response.text, "html.parser")
+            body_text = soup_check.get_text(strip=True)
+            if body_text:
+                snippet = body_text[:200].replace("\n", " ")
+                logger.info(f"📝 Page message: {snippet}")
 
     except requests.exceptions.RequestException as e:
-        logger.exception(f"❌ Request to {url} failed.")
+        logger.exception(f"Request to {url} failed.")
         return {}
 
     soup = BeautifulSoup(response.content, "html.parser")
 
-    # Return placeholder structure
-    return {
+    result = {
         "Attorney": None,
         "Crime": None,
         "Status": None,
@@ -88,3 +89,29 @@ def extract_docket_data(url, suspect_name):
         "Sentencing": None,
         "fldX72Wdvk52dP8NG": None
     }
+
+    return result
+
+def main():
+    api = Api(AIRTABLE_API_KEY)
+    table = api.table(BASE_ID, TABLE_ID)
+
+    logger.info("🔍 Pulling Airtable records...")
+    records = table.all(fields=["Suspect Name", "Case #"])
+
+    for record in records:
+        fields = record.get("fields", {})
+        case_number = fields.get("Case #")
+        suspect = fields.get("Suspect Name", "Unknown")
+
+        if not case_number:
+            continue
+
+        url = BASE_URL + case_number
+        result = extract_docket_data(url, suspect)
+
+        logger.info(f"🎯 Case {case_number} | Suspect: {suspect}")
+        logger.info(f"➡️ Scraped Result: {result}")
+
+if __name__ == "__main__":
+    main()
