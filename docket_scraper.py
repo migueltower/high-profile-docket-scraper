@@ -37,19 +37,28 @@ HEADER_POOL = [
     }
 ]
 
-def extract_docket_data(url, suspect_name):
+def extract_docket_data(case_number, url, suspect_name):
     headers = random.choice(HEADER_POOL)
     session = requests.Session()
 
+    logger.info(f"Fetching URL: {url}")
     try:
-        # Seed with homepage cookies and delay
         session.get("https://www.superiorcourt.maricopa.gov/", headers=headers, timeout=10)
         time.sleep(random.uniform(4, 7))
 
         response = session.get(url, headers=headers, timeout=15)
-        if "server is busy" in response.text.lower():
+        logger.debug(f"Status code: {response.status_code}")
+        logger.debug(f"First 500 characters of response:\n{response.text[:500]}")
+
+        soup_check = BeautifulSoup(response.text, "html.parser")
+        body_text = soup_check.get_text(strip=True)
+        if body_text:
+            snippet = body_text[:200].replace("\n", " ")
+            logger.info(f"📝 Page message: {snippet}")
+
+        if "server busy" in response.text.lower():
             logger.warning("⚠️ Server busy message detected.")
-            return None  # 🔁 Now returns None instead of {}
+            return None
 
         soup = BeautifulSoup(response.content, "html.parser")
         result = {
@@ -175,25 +184,29 @@ def extract_docket_data(url, suspect_name):
 def main():
     api = Api(AIRTABLE_API_KEY)
     table = api.table(BASE_ID, TABLE_ID)
+    logger.info("📢 Scraper started")
     logger.info("🔍 Pulling Airtable records...")
 
-    records = table.all(fields=["Suspect Name", "Court Docket"])
+    records = table.all(fields=["Suspect Name", "Court Docket", "Case #"])
     for record in records:
         fields = record.get("fields", {})
         name = fields.get("Suspect Name")
         url = fields.get("Court Docket")
-        if not name or not url:
-            continue
-        logger.info(f"🎯 Scraping {name}")
-        try:
-            data = extract_docket_data(url, name)
+        case_number = fields.get("Case #")
 
-            # ✅ Skip Airtable update if server returned empty due to throttling
+        if not name or not url or not case_number:
+            continue
+
+        try:
+            data = extract_docket_data(case_number, url, name)
+
+            logger.info(f"🎯 Case {case_number} | Suspect: {name}")
+            logger.info(f"➡️ Scraped Result: {data}")
+
             if data is None:
-                logger.warning(f"🚫 Skipping Airtable update for {name} due to server busy message.")
+                logger.warning(f"🚫 Skipping Airtable update for {name} due to server busy.")
                 continue
 
-            logger.info(f"✏️ Updating: {data}")
             table.update(record["id"], data)
         except Exception as e:
             logger.error(f"❌ Error processing {name}: {e}")
