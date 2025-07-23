@@ -47,11 +47,9 @@ def extract_docket_data(url, suspect_name):
         time.sleep(random.uniform(4, 7))
 
         response = session.get(url, headers=headers, timeout=15)
-        if "server is busy" in response.text.lower():
-            logger.warning("⚠️ Server busy message detected.")
-            return {}
-
         soup = BeautifulSoup(response.content, "html.parser")
+        page_text = soup.get_text(strip=True).lower()
+
         result = {
             "Attorney": None,
             "Crime": None,
@@ -60,8 +58,16 @@ def extract_docket_data(url, suspect_name):
             "Next Hearing Date": None,
             "Trial": None,
             "Sentencing": None,
-            "fldX72Wdvk52dP8NG": None  # Last Filed
+            "fldX72Wdvk52dP8NG": None,  # Last Filed
+            "Page Message": None         # NEW: logs server messages
         }
+
+        # Detect known server-side error messages
+        if "server is busy" in page_text or "please try again later" in page_text:
+            snippet = page_text[:300]
+            logger.warning(f"⚠️ Page message detected: {snippet}")
+            result["Page Message"] = snippet
+            return result
 
         # Attorney
         party_sections = soup.find_all("div", id="tblForms2")
