@@ -2,7 +2,7 @@ name: Run High Profile Docket Scraper
 
 on:
   schedule:
-    - cron: "0 16,0 * * 1-5"  # Every weekday at 9AM and 5PM UTC
+    - cron: "0 9 * * 1-5"  # Every weekday at 9AM UTC
   workflow_dispatch:
 
 jobs:
